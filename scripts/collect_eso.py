@@ -1,71 +1,149 @@
+
 #!/usr/bin/env python3
-"""Best-effort ESO collector. Fails closed on unrecognized schemas; no made-up load."""
+"""Collect real Bulgarian electricity system load from ESO."""
+
 import datetime as dt
 import json
 import pathlib
-import re
 import sys
 import urllib.request
+from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-URL = 'https://www.eso.bg/api/last24load.json.php'
-OUT = ROOT / 'data' / 'eso.json'
-
-
-def normalized_timestamp(value):
-    if not isinstance(value, str):
-        return None
-    value = value.strip()
-    if re.fullmatch(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?', value):
-        return value.replace(' ', 'T')
-    return None
+URL = "https://www.eso.bg/api/last24load.json.php"
+OUT = ROOT / "data" / "eso.json"
+SOFIA = ZoneInfo("Europe/Sofia")
 
 
 def normalize_load(payload):
-    """Only recognize explicit MW and timestamp keys, not arrays with unknown meaning."""
-    series = payload if isinstance(payload, list) else None
+    """Convert ESO [Unix milliseconds, MW] pairs to dashboard format."""
     if isinstance(payload, dict):
-        for key in ('load_mw', 'measurements', 'data', 'values'):
+        for key in ("load_mw", "data", "values"):
             if isinstance(payload.get(key), list):
-                series = payload[key]
+                payload = payload[key]
                 break
-    if not isinstance(series, list):
+
+    if not isinstance(payload, list):
         return []
+
     result = []
-    for item in series:
-        if not isinstance(item, dict):
-            continue
-        timestamp = next((normalized_timestamp(item[k]) for k in ('timestamp', 'datetime', 'time') if k in item), None)
-        value = next((item[k] for k in ('load_mw', 'loadMW', 'power_mw') if k in item), None)
-        if timestamp is None or value is None:
-            continue
+    now = dt.datetime.now(dt.timezone.utc)
+
+    for item in payload:
         try:
+            if isinstance(item, list) and len(item) == 2:
+                timestamp, value = item
+                timestamp = dt.datetime.fromtimestamp(
+                    float(timestamp) / 1000,
+                    tz=dt.timezone.utc
+                )
+            elif isinstance(item, dict):
+                raw_time = item.get(
+                    "timestamp", item.get("datetime")
+                )
+                value = item.get(
+                    "value", item.get("load_mw")
+                )
+
+                if isinstance(raw_time, (int, float)):
+                    timestamp = dt.datetime.fromtimestamp(
+                        raw_time / 1000, tz=dt.timezone.utc
+                    )
+                else:
+                    timestamp = dt.datetime.fromisoformat(
+                        str(raw_time).replace("Z", "+00:00")
+                    )
+                    if timestamp.tzinfo is None:
+                        timestamp = timestamp.replace(
+                            tzinfo=SOFIA
+                        )
+                    timestamp = timestamp.astimezone(
+                        dt.timezone.utc
+                    )
+            else:
+                continue
+
             value = float(value)
+
             if not 0 <= value <= 15000:
                 continue
-        except (TypeError, ValueError):
+
+            if not (
+                now - dt.timedelta(hours=48)
+                <= timestamp
+                <= now + dt.timedelta(minutes=15)
+            ):
+                continue
+
+            local_time = timestamp.astimezone(SOFIA)
+
+            result.append({
+                "timestamp": local_time.isoformat(
+                    timespec="seconds"
+                ),
+                "value": value
+            })
+
+        except (ValueError, TypeError, OverflowError, OSError):
             continue
-        result.append({'timestamp': timestamp, 'value': value})
-    return sorted(result, key=lambda r: r['timestamp'])
+
+    return sorted(result, key=lambda x: x["timestamp"])
 
 
 def main():
-    req = urllib.request.Request(URL, headers={'User-Agent': 'EnergyIntelDashboard/1.0 (public data)', 'Accept': 'application/json'})
-    with urllib.request.urlopen(req, timeout=22) as response:
-        raw = response.read(5_000_000)
-    data = json.loads(raw)
-    load = normalize_load(data)
-    if not load:
-        print('ESO schema not recognized; existing published data left unchanged.', file=sys.stderr)
+    request = urllib.request.Request(
+        URL,
+        headers={
+            "User-Agent": "EnergyIntelDashboard/1.1",
+            "Accept": "application/json"
+        }
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=30
+        ) as response:
+            payload = json.load(response)
+
+        load = normalize_load(payload)
+
+        if not load:
+            raise ValueError(
+                "ESO returned no valid recent load observations"
+            )
+
+        snapshot = {
+            "source": URL,
+            "fetched_at": dt.datetime.now(
+                dt.timezone.utc
+            ).isoformat(timespec="seconds"),
+            "load_mw": load
+        }
+
+        OUT.parent.mkdir(parents=True, exist_ok=True)
+        temporary = OUT.with_suffix(".tmp")
+
+        temporary.write_text(
+            json.dumps(
+                snapshot,
+                ensure_ascii=False,
+                indent=2
+            ) + "\n",
+            encoding="utf-8"
+        )
+
+        temporary.replace(OUT)
+
+        print(f"SUCCESS: {len(load)} ESO observations")
+        print(f"Latest load: {load[-1]['value']} MW")
+        print(f"Timestamp: {load[-1]['timestamp']}")
+
+        return 0
+
+    except Exception as error:
+        print(f"ESO collector failed: {error}", file=sys.stderr)
         return 2
-    snapshot = {'source': URL, 'fetched_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'), 'load_mw': load}
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OUT.with_suffix('.tmp')
-    tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    tmp.replace(OUT)
-    print(f'Loaded {len(load)} ESO observations')
-    return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
