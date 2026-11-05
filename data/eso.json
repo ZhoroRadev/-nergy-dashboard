@@ -1,0 +1,6 @@
+{
+  "source": "https://www.eso.bg/api/last24load.json.php",
+  "fetched_at": null,
+  "load_mw": [],
+  "note": "No verified data collected yet; never substitute demo values."
+}
