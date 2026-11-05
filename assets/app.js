@@ -22,4 +22,26 @@ function battery(){const power=Number($('power').value),cap=Number($('capacity')
 if(rows[i].timestamp.slice(0,10)!==rows[j].timestamp.slice(0,10))break;const gross=delivered*rows[j][key]-charge*rows[i][key];if(!best||gross>best.gross)best={i,j,gross}}if(!best){$('batteryMessage').textContent='Няма две интервални цени в един и същ ден.';return}if(best.gross<=0){$('batteryMessage').textContent='При въведените условия няма положителен арбитражен спред в един ден.';output.forEach(k=>$(k).textContent='—');return}$('profit').textContent=money(best.gross,2);$('chargePrice').textContent=money(rows[best.i][key],2);$('dischargePrice').textContent=money(rows[best.j][key],2);$('chargeEnergy').textContent=money(charge,2);$('batteryMessage').textContent=`Заряд: ${stamp(rows[best.i].timestamp)}; разряд: ${stamp(rows[best.j].timestamp)}. Отдадена енергия: ${money(delivered,2)} MWh. Теоретичен едночасов цикъл, без такси, ограничения SOC или деградация.`}
 $('calcBattery').onclick=battery;
 const titles={overview:'Енергиен пазар — обзор',market:'БНЕБ и балансиращи цени',system:'ЕСО — оперативна информация',weather:'ВЕИ — метеорологични прогнози',battery:'Батерии — анализ на арбитраж',data:'Източници и управление на данни'};document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));$('viewTitle').textContent=titles[b.dataset.tab];Object.values(charts).forEach(c=>c.resize());location.hash=b.dataset.tab});
-function init(){const hash=location.hash.slice(1),button=document.querySelector(`[data-tab="${CSS.escape(hash)}"]`);if(button)button.click();updateMarket();loadESO();loadWeather()}init();
+
+// ESO production mix: separate independently checked dataset.
+async function loadGeneration(){
+  const labels={nuclear:'АЕЦ',thermal_condensing:'Конд. ТЕЦ',thermal_district:'Топл. ТЕЦ',thermal_industrial:'Зав. ТЕЦ',hydro:'ВЕЦ',small_hydro:'Малки ВЕЦ',wind:'ВяЕЦ',solar:'ФЕЦ',biomass:'Биомаса'};
+  try{
+    const res=await fetch('data/eso-generation.json?t='+Date.now(),{cache:'no-store'});
+    if(!res.ok)throw Error('Няма публикуван файл eso-generation.json');
+    const obj=await res.json();
+    const values=obj.generation_mw||{};
+    const pairs=Object.entries(labels).filter(([key])=>Number.isFinite(values[key])&&values[key]>=0).map(([key,label])=>({label,value:values[key]}));
+    if(pairs.length<3)throw Error('Недостатъчно проверени категории');
+    const total=pairs.reduce((a,b)=>a+b.value,0);
+    document.getElementById('generationStamp').textContent='Извлечено: '+stamp(obj.fetched_at)+' · '+pairs.length+' категории · официален API на ЕСО';
+    document.getElementById('generationMetrics').innerHTML=pairs.map(({label,value})=>'<div class="metric"><div class="label">'+label+'</div><div class="value">'+money(value,0)+'</div><div class="desc">MW · '+(total?money(value/total*100,1):'—')+'% от изброените източници</div></div>').join('');
+    document.getElementById('generationEmpty').style.display='none';
+    chart('generationChart',pairs.map(x=>x.label),[{name:'Производство MW',color:colors.teal,data:pairs.map(x=>x.value)}]);
+  }catch(e){
+    document.getElementById('generationStamp').textContent='Производство: '+e.message;
+    document.getElementById('generationEmpty').style.display='flex';
+  }
+}
+
+function init(){const hash=location.hash.slice(1),button=document.querySelector(`[data-tab="${CSS.escape(hash)}"]`);if(button)button.click();updateMarket();loadESO();loadGeneration();loadWeather()}init();
