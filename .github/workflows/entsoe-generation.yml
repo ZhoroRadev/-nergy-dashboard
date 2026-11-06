@@ -1,0 +1,36 @@
+name: Collect ENTSO-E generation (licensed public data only)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: entsoe-generation-publication
+  cancel-in-progress: false
+jobs:
+  generation:
+    if: vars.ENTSOE_GENERATION_PUBLICATION_ALLOWED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Collect licensed generation data
+        env:
+          ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+          ENTSOE_GENERATION_PUBLICATION_ALLOWED: ${{ vars.ENTSOE_GENERATION_PUBLICATION_ALLOWED }}
+        run: python scripts/collect_entsoe_generation.py
+      - name: Publish permitted generation snapshot
+        run: |
+          if ! test -f data/entsoe-generation.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/entsoe-generation.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update licensed ENTSO-E generation"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
