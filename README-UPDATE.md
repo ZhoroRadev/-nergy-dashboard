@@ -1,28 +1,32 @@
-# Обновяване v3 — БНЕБ / дневен анализ на цените
+# Energy Trading Dashboard v4.0 — DAM + Intraday
 
-## Какво добавя
-- Избор на ден на доставка и серия: DAM, Intraday или балансиране.
-- Средна аритметична, минимална и максимална цена; брой отрицателни ценови интервали.
-- Графика и таблица, филтрирани по избрания ден.
-- Всички данни се импортират от CSV в браузъра; няма автоматичен достъп до БНЕБ и няма симулирани цени.
+## What is implemented
+- `scripts/collect_dam.py`: ENTSO-E Transparency A44, Bulgarian bidding zone, A44 price document, parsing 15/30/60-minute intervals with proper timezone offsets and DST support. Requires `ENTSOE_API_TOKEN` (repository secret) and `MARKET_PUBLICATION_ALLOWED=true` (repository variable).
+- `scripts/collect_intraday.py`: strict adapter for *licensed* Intraday continuous-trading VWAP JSON. Requires `IBEX_EXPORT_URL` secret, optional `IBEX_EXPORT_TOKEN` secret and `INTRADAY_PUBLICATION_ALLOWED=true` variable. No official vendor URL is guessed; endpoint mapping is subject to your actual contract.
+- `.github/workflows/market-prices.yml`: hourly job plus manual trigger, writes only source-confirmed authorized snapshots.
+- `assets/app.js` and `index.html`: fetch `data/dam.json` + `data/intraday.json` if available, show source; CSV import in browser overrides automatic files temporarily.
 
-## Инсталиране
-В GitHub заменете **само** тези три файла от папката на архива в същите им пътища:
-- `index.html`
-- `assets/app.js`
-- `assets/style.css`
+## IMPORTANT: License and privacy
+IBEX market data access is contractual. Internal-use licenses do NOT allow publishing prices in a public GitHub Pages repository. **Do not enable `INTRADAY_PUBLICATION_ALLOWED` for an internal-use-only feed.** If you cannot publish data, keep Intraday local via the CSV import or host the tool privately with authenticated access. ENTSO-E terms should also be checked before public republication; `MARKET_PUBLICATION_ALLOWED` is OFF by default.
 
-В GitHub през Code → Add file → Upload files и Commit changes, като запазите структурата на папките. Ако уеб интерфейсът не предлага замяна на съществуващите файлове, редактирайте съответните файлове чрез молива или използвайте GitHub Desktop.
+## Installation
+Upload only `index.html`, `assets/app.js`, `scripts/collect_dam.py`, `scripts/collect_intraday.py` and `.github/workflows/market-prices.yml` to the matching paths. Keep existing ESO workflow and scripts unchanged. GitHub web upload often does not preserve hidden `.github` directories; create the workflow in the GitHub file editor if necessary.
 
-**Не заменяйте** работещите колектори, JSON данните или GitHub workflows. След публикуването отворете сайта с Ctrl+F5.
+## Secrets and variables
+GitHub → Settings → Secrets and variables → Actions:
+- Secrets: `ENTSOE_API_TOKEN` (when received), `IBEX_EXPORT_URL` and optional `IBEX_EXPORT_TOKEN` (only after an authorized data service is available).
+- Variables: `MARKET_PUBLICATION_ALLOWED` (`true` only if permitted) and `INTRADAY_PUBLICATION_ALLOWED` (`true` only with explicit redistribution rights). Absence = disabled.
 
-## Формат
-CSV заглавия: `timestamp,dam_eur_mwh,intraday_eur_mwh,balancing_eur_mwh`.
-Например:
-`2026-11-05 12:00,123.45,,`
+## Expected normalized licensed Intraday JSON input
+```json
+{"records":[{"timestamp":"2026-11-05T13:00:00+02:00","intraday_eur_mwh":120.5,"interval_minutes":15,"volume_mwh":22.4}]}
+```
+The example is schema documentation, not a real market observation. Mapping from an actual IBEX API/FTP response is required after you have access. The price field represents **volume-weighted average price (VWAP)**, not the latest transaction price; do not mix it with other metrics.
 
-Цените са €/MWh; време на доставка Europe/Sofia. Не смесвайте 15-минутни и 60-минутни интервали при тълкуване на статистиката. Средната е проста аритметична по редове, а не обемно претеглена. За летните смени на часовото време използвайте уникални UTC времена или разширен формат в следваща версия: дублираните локални часове се различават трудно.
+## Checks
+- `python -m py_compile scripts/collect_dam.py scripts/collect_intraday.py`
+- `python scripts/collect_dam.py` and `python scripts/collect_intraday.py` should print `SKIP` without credentials, with no fabricated data files.
+- Workflow dispatch should finish successfully and skip disabled sources.
 
-## Източници и права
-БНЕБ предоставя пазарните данни чрез договорен API или FTP, с различни условия за вътрешно и публично разпространение: https://ibex.bg/data-provision-bg/
-Проверявайте дали имате разрешение за употребата на конкретните CSV данни. При работа с поверителни фирмени данни използвайте одобрена вътрешна среда.
+## Data quality
+ENTSO-E data may be delayed, revised or have DST 23/25-hour delivery days. Use UTC offset timestamps for identity. The existing CSV model has one price per timestamp and does not calculate true interval-volume-weighted daily averages. Keep the market-specific KPIs separate when making actual trading decisions.
