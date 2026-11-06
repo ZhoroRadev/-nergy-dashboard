@@ -1,4 +1,3 @@
-
 name: Collect ESO public data
 
 on:
@@ -9,28 +8,33 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: eso-data-commit
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
+        with:
+          persist-credentials: true
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Collect ESO data
+      - name: Collect live ESO load
         run: python scripts/collect_eso.py
-
-      - name: Publish updated data
+      - name: Update rolling history from verified ESO data
+        run: python scripts/archive_eso.py
+      - name: Publish latest load and history
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/eso.json
+          git add data/eso.json data/eso_history.json
           if ! git diff --cached --quiet; then
-            git commit -m "Update ESO data"
-            git push
+            git commit -m "Update ESO load and 90-day history"
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
