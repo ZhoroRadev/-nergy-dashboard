@@ -23,19 +23,21 @@ jobs:
         env:
           ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
         run: python scripts/entsoe_status.py
-      - name: Publish metadata-only status
+      - name: Append metadata-only check history
+        run: python scripts/entsoe_history.py
+      - name: Publish metadata-only status and history
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          if git diff --quiet -- data/entsoe-status.json && ! git ls-files --others --exclude-standard -- data/entsoe-status.json | grep -q .; then
+          if git diff --quiet -- data/entsoe-status.json data/entsoe-status-history.json && ! git ls-files --others --exclude-standard -- data/entsoe-status.json data/entsoe-status-history.json | grep -q .; then
             echo "Unchanged public status"
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/entsoe-status.json
-          git commit -m 'Update ENTSO-E public metadata status'
+          git add data/entsoe-status.json data/entsoe-status-history.json
+          git commit -m 'Update ENTSO-E metadata status and history'
           # Use temporary credentials without persisting a token in .git/config.
           for attempt in 1 2 3; do
             git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin HEAD:main && exit 0
