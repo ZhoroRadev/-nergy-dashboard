@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
   "source": "ENTSO-E Transparency Platform",
-  "checked_at_utc": "2026-11-11T17:00:24+00:00",
+  "checked_at_utc": "2026-11-12T01:18:21+00:00",
   "coverage": "Bulgaria",
   "mode": "metadata_only",
   "dam": {
     "status": "ok",
-    "intervals": 377,
-    "earliest_interval_utc": "2026-11-08T23:00:00+00:00",
+    "intervals": 283,
+    "earliest_interval_utc": "2026-11-09T23:00:00+00:00",
     "latest_interval_utc": "2026-11-12T22:45:00+00:00"
   },
   "generation": {
     "status": "ok",
-    "intervals": 57,
+    "intervals": 33,
     "production_type_count": 11,
-    "earliest_interval_utc": "2026-11-09T00:00:00+00:00",
+    "earliest_interval_utc": "2026-11-10T00:00:00+00:00",
     "latest_interval_utc": "2026-11-11T08:00:00+00:00"
   },
   "disclaimer": "Metadata about API availability; no market prices or production quantities are published."

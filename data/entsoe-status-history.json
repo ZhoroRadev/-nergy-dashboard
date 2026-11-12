@@ -450,6 +450,20 @@
         "latest_interval_utc": "2026-11-11T08:00:00+00:00",
         "production_type_count": 11
       }
+    },
+    {
+      "checked_at_utc": "2026-11-12T01:18:21+00:00",
+      "dam": {
+        "intervals": 283,
+        "earliest_interval_utc": "2026-11-09T23:00:00+00:00",
+        "latest_interval_utc": "2026-11-12T22:45:00+00:00"
+      },
+      "generation": {
+        "intervals": 33,
+        "earliest_interval_utc": "2026-11-10T00:00:00+00:00",
+        "latest_interval_utc": "2026-11-11T08:00:00+00:00",
+        "production_type_count": 11
+      }
     }
   ]
 }
