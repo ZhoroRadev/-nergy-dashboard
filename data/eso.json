@@ -1,11 +1,7 @@
 {
   "source": "https://www.eso.bg/api/last24load.json.php",
-  "fetched_at": "2026-11-15T08:53:07+00:00",
+  "fetched_at": "2026-11-15T09:42:59+00:00",
   "load_mw": [
-    {
-      "timestamp": "2026-11-14T13:00:00+02:00",
-      "value": 4774.0
-    },
     {
       "timestamp": "2026-11-14T14:00:00+02:00",
       "value": 5004.0
