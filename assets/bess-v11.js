@@ -77,14 +77,55 @@
     const total=points.reduce((a,p)=>a+p.cash,0);
     return {points,total,charge:points.reduce((a,p)=>a+p.charge,0),discharge:points.reduce((a,p)=>a+p.discharge,0)};
   }
+  // Exactly one contiguous charge block and one contiguous discharge block.
+  // Constant grid power within each block. No overlaps; respect power, SOC and RTE.
+  function optimizeBlocks(prices,hours,cfg,slots=8) {
+    if (!Number.isInteger(slots)||slots<1||prices.length<2*slots) throw Error('Нужни са поне '+(2*slots)+' интервала за два отделни блока.');
+    const {capacity,power,etaC,etaD,initial,finalSoc,wear}=cfg;
+    const n=prices.length, soc0=capacity*initial/100, socEnd=capacity*finalSoc/100;
+    const delta=socEnd-soc0, maxCh=slots*hours*power*etaC, maxDis=slots*hours*power/etaD;
+    const minGridPerSlot=Math.min(0.01,power*hours*0.001);
+    const minCh=slots*minGridPerSlot*etaC, minDis=slots*minGridPerSlot/etaD;
+    const prefix=[0];for(const price of prices)prefix.push(prefix[prefix.length-1]+price);
+    const avg=i=>(prefix[i+slots]-prefix[i])/slots;
+    let best=null;
+    for(let c=0;c<=n-slots;c++)for(let d=0;d<=n-slots;d++){
+      if(!(c+slots<=d || d+slots<=c))continue;
+      // Internal-energy discharge amount xD, with charge xC=xD+delta.
+      const lower=Math.max(0,minDis,minCh-delta);
+      const upper=Math.min(maxDis,maxCh-delta,c<d?capacity-socEnd:soc0);
+      if(upper+1e-9<lower)continue;
+      const ac=avg(c),ad=avg(d);
+      const slope=etaD*(ad-wear)-ac/etaC;
+      const xD=slope>=0?upper:lower, xC=xD+delta;
+      if(xC<=0 || xD<=0)continue;
+      const buy=xC/etaC, sell=xD*etaD;
+      const total=sell*(ad-wear)-buy*ac;
+      if(!best || total>best.total+1e-8)best={c,d,buy,sell,xC,xD,total};
+    }
+    if(!best)throw Error('Невъзможни са два отделни 8-периодни блока при избраните SOC, капацитет и мощност.');
+    let state=soc0;const points=[];
+    for(let i=0;i<n;i++){
+      const charge=i>=best.c&&i<best.c+slots?best.buy/slots:0;
+      const discharge=i>=best.d&&i<best.d+slots?best.sell/slots:0;
+      state+=charge*etaC-discharge/etaD;
+      if(state < -1e-6 || state > capacity+1e-6)throw Error('Вътрешна грешка в ограниченията на SOC.');
+      const cash=discharge*(prices[i]-wear)-charge*prices[i];
+      points.push({soc:Math.max(0,Math.min(100,Math.round(state/capacity*10000)/100)),price:prices[i],charge,discharge,cash});
+    }
+    if(Math.abs(state-socEnd)>1e-6)throw Error('Не е достигнат зададеният краен SOC.');
+    return {points,total:points.reduce((sum,p)=>sum+p.cash,0),charge:best.buy,discharge:best.sell,blockCharge:best.c,blockDischarge:best.d,slots};
+  }
+
   function makePanel() {
     const section=document.getElementById('battery');if(!section||document.getElementById(ID))return;
     const panel=document.createElement('article');panel.id=ID;panel.className='panel';panel.style.marginTop='16px';
-    panel.innerHTML=`<h2>BESS v11.0 · График за заряд и разряд по цени</h2>
+    panel.innerHTML=`<h2>BESS v11.1 · График за заряд и разряд по цени</h2>
     <p class="muted">Сценарен оптимизатор по реални цени от CSV. Не извършва сделки или команди към батерия. Цените се четат само в браузъра; няма публично качване.</p>
     <div class="controls" style="display:flex;flex-wrap:wrap;gap:12px">
       <label>CSV файл с цени<input type="file" id="b11file" accept=".csv,text/csv"></label>
       <label>Пазар<select id="b11market"><option value="dam_eur_mwh">DAM</option><option value="intraday_eur_mwh">Intraday</option></select></label>
+      <label>Режим на графика<select id="b11mode"><option value="blocks8" selected>8 поредни заряд + 8 поредни разряд</option><option value="free">Свободна оптимизация (стар режим)</option></select></label>
       <label>Мощност (MW)<input id="b11power" type="number" min="0.1" max="10000" step="0.1" value="10"></label>
       <label>Капацитет (MWh)<input id="b11capacity" type="number" min="0.1" max="100000" step="0.1" value="20"></label>
       <label>Първоначален SOC (%)<input id="b11soc" type="number" min="0" max="100" step="1" value="50"></label>
@@ -121,7 +162,9 @@
       const capacity=number('b11capacity',0.1,100000),power=number('b11power',0.1,10000),eff=number('b11eta',1,100)/100;
       const cfg={capacity,power,etaC:Math.sqrt(eff),etaD:Math.sqrt(eff),initial:number('b11soc',0,100),finalSoc:number('b11final',0,100),wear:number('b11wear',0,10000)};
       if(!Number.isInteger(cfg.initial)||!Number.isInteger(cfg.finalSoc))throw Error('SOC трябва да е цяло число (стъпка 1%).');
-      const result=optimize(parsed.rows.map(r=>r.price),parsed.hours,cfg);
+      const mode=document.getElementById('b11mode').value;
+      if(mode==='blocks8' && parsed.minutes!==15)throw Error('Режимът с 8 периода изисква 15-минутни цени.');
+      const result=mode==='blocks8'? optimizeBlocks(parsed.rows.map(r=>r.price),parsed.hours,cfg,8):optimize(parsed.rows.map(r=>r.price),parsed.hours,cfg);
       latest={result,times:parsed.rows.map(r=>r.t),market};
       document.getElementById('b11profit').textContent=fmt(result.total);
       document.getElementById('b11charge').textContent=fmt(result.charge);
@@ -130,12 +173,12 @@
       const timeFormat=new Intl.DateTimeFormat('bg-BG',{timeZone:'Europe/Sofia',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,timeZoneName:'shortOffset'});
       document.getElementById('b11rows').innerHTML=result.points.map((p,i)=>`<tr><td>${esc(timeFormat.format(new Date(parsed.rows[i].t)))}</td><td>${fmt(p.price)}</td><td>${fmt(p.charge,3)}</td><td>${fmt(p.discharge,3)}</td><td>${p.soc}</td><td>${fmt(p.cash)}</td></tr>`).join('');
       document.getElementById('b11export').disabled=false;
-      status.textContent='Изчислени '+parsed.rows.length+' последователни интервала от избрания CSV. Всички данни остават в браузъра. Крайният SOC е '+cfg.finalSoc+'%.';
+      status.textContent= mode==='blocks8' ? 'Два непрекъснати блока по 8 × 15 минути: заряд '+timeFormat.format(new Date(parsed.rows[result.blockCharge].t))+'; разряд '+timeFormat.format(new Date(parsed.rows[result.blockDischarge].t))+'. Константна мощност във всеки блок, краен SOC '+cfg.finalSoc+'%. '+(result.total<0?'ВНИМАНИЕ: задължителните два блока носят отрицателен резултат.':'')+' Всички данни остават в браузъра.' : 'Изчислени '+parsed.rows.length+' последователни интервала от избрания CSV. Всички данни остават в браузъра. Крайният SOC е '+cfg.finalSoc+'%.';
       if(graph){graph.destroy();graph=null;}
       if(window.Chart){graph=new Chart(document.getElementById('b11chart'),{type:'bar',data:{labels:parsed.rows.map(r=>timeFormat.format(new Date(r.t))),datasets:[{label:'Заряд (MWh)',data:result.points.map(p=>p.charge),backgroundColor:'#60a5fa'},{label:'Разряд (MWh)',data:result.points.map(p=>-p.discharge),backgroundColor:'#34d399'}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{x:{ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'MWh (+ заряд / − разряд)'}}}}});}
     } catch(e) {status.textContent='Грешка: '+e.message;document.getElementById('b11export').disabled=true;latest=null;}
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',makePanel);else makePanel();
   // Exposed only to local automated tests; never carries credentials or network actions.
-  if(typeof module!=='undefined'&&module.exports)module.exports={parsePriceCsv,optimize};
+  if(typeof module!=='undefined'&&module.exports)module.exports={parsePriceCsv,optimize,optimizeBlocks};
 })();
