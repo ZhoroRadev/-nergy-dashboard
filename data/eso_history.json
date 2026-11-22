@@ -1,6 +1,6 @@
 {
   "source": "https://www.eso.bg/api/last24load.json.php",
-  "archive_updated_at": "2026-11-21T23:33:51+00:00",
+  "archive_updated_at": "2026-11-22T00:54:27+00:00",
   "retention_days": 90,
   "load_mw": [
     {
@@ -1586,6 +1586,14 @@
     {
       "timestamp": "2026-11-21T23:00:00+00:00",
       "value": 4175.0
+    },
+    {
+      "timestamp": "2026-11-22T00:00:00+00:00",
+      "value": 3919.0
+    },
+    {
+      "timestamp": "2026-11-22T01:00:00+00:00",
+      "value": 3673.0
     }
   ]
 }
