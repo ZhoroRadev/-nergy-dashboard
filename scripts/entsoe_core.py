@@ -55,6 +55,8 @@ def parse_points(root, kind):
     if local(root)!=target:
         # For ENTSO-E no-data Acknowledgement_MarketDocument, do not dump response
         raise ValueError('no_data_or_rejected_document')
+    if kind == 'dam':
+        return parse_dam_prices(root)
     records={}
     for series in children(root,'TimeSeries'):
         psr=value(one(series,'MktPSRType'),'psrType') if kind=='generation' else None
@@ -84,4 +86,78 @@ def parse_points(root, kind):
                 else:
                     if key not in records:records[key]={'timestamp':t.astimezone(BG).isoformat(timespec='seconds'),'timestamp_utc':key,'interval_minutes':minutes,'generation_mw':{}}
                     k=PSR[psr]; records[key]['generation_mw'][k]=records[key]['generation_mw'].get(k,0)+n
+    return [records[k] for k in sorted(records)]
+
+
+def parse_dam_prices(root):
+    """Expand explicit A03 variable-sized blocks; never infer A01 missing points.
+
+    Time intervals are parsed in UTC, so DST repeated local times are distinct.
+    The A03 price is held only within its own Period, never across periods.
+    """
+    if local(root) != 'Publication_MarketDocument':
+        raise ValueError('no_data_or_rejected_document')
+    records = {}
+    for series in children(root, 'TimeSeries'):
+        curve = value(series, 'curveType')
+        if curve not in ('A01', 'A03'):
+            raise ValueError('unsupported_curve_type_' + str(curve))
+        currency = value(series, 'currency_Unit.name')
+        if currency is not None and currency != 'EUR':
+            raise ValueError('unexpected_price_currency_' + currency)
+        for period in children(series, 'Period'):
+            interval = one(period, 'timeInterval')
+            start_text = value(interval, 'start')
+            end_text = value(interval, 'end')
+            resolution = value(period, 'resolution') or ''
+            match = re.fullmatch(r'PT(?:(\d+)H|(\d+)M)', resolution)
+            if not start_text or not end_text or not match:
+                raise ValueError('invalid_price_period')
+            minutes = int(match.group(1)) * 60 if match.group(1) else int(match.group(2))
+            if minutes not in (15,30,60):
+                raise ValueError('unsupported_price_resolution')
+            try:
+                t0 = dt.datetime.fromisoformat(start_text.replace('Z', '+00:00')).astimezone(UTC)
+                t1 = dt.datetime.fromisoformat(end_text.replace('Z', '+00:00')).astimezone(UTC)
+            except ValueError:
+                raise ValueError('invalid_price_period_time') from None
+            span = int((t1-t0).total_seconds())
+            if span <= 0 or span % (minutes*60):
+                raise ValueError('invalid_price_period_duration')
+            count = span // (minutes*60)
+            explicit = {}
+            for point in children(period, 'Point'):
+                pos = value(point, 'position')
+                amt = value(point, 'price.amount')
+                try:
+                    position = int(pos)
+                except (TypeError,ValueError):
+                    raise ValueError('invalid_price_position') from None
+                if position < 1 or position > count or position in explicit:
+                    raise ValueError('duplicate_or_out_of_range_price_position')
+                if amt is None:
+                    # No published price is a data gap, not a value to carry forward.
+                    explicit[position] = None
+                else:
+                    try: price = float(amt)
+                    except ValueError: raise ValueError('invalid_price_amount') from None
+                    if not (-20000 <= price <= 20000) or not __import__('math').isfinite(price):
+                        raise ValueError('out_of_range_price_amount')
+                    explicit[position] = price
+            held = None
+            for position in range(1,count+1):
+                if position in explicit:
+                    held = explicit[position]
+                elif curve != 'A03':
+                    held = None
+                if held is None:
+                    continue
+                t = t0 + dt.timedelta(minutes=minutes*(position-1))
+                key = t.isoformat(timespec='seconds')
+                item = dict(timestamp=t.astimezone(BG).isoformat(timespec='seconds'),
+                            timestamp_utc=key, dam_eur_mwh=held, interval_minutes=minutes)
+                if key in records and (records[key]['dam_eur_mwh'] != held or records[key]['interval_minutes'] != minutes):
+                    # Avoid silently mixing another auction/series into the same instant.
+                    raise ValueError('conflicting_price_series')
+                records[key] = item
     return [records[k] for k in sorted(records)]
