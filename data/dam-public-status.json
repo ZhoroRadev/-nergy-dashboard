@@ -1,0 +1,17 @@
+{
+  "updated_at_utc": "2026-11-25T12:54:32+00:00",
+  "source": "ENTSO-E Transparency Platform (A44)",
+  "publication_enabled": false,
+  "days": [
+    {
+      "date": "2026-11-25",
+      "complete": true,
+      "intervals": 96
+    },
+    {
+      "date": "2026-11-26",
+      "complete": false
+    }
+  ],
+  "notes": []
+}
