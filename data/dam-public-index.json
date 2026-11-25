@@ -1,0 +1,11 @@
+{
+  "updated_at_utc": "2026-11-25T13:06:18+00:00",
+  "available_days": [
+    {
+      "date": "2026-11-25",
+      "path": "data/dam-2026-11-25.json"
+    }
+  ],
+  "source": "ENTSO-E Transparency Platform (A44)",
+  "disclaimer": "Public prices only if redistribution permission is confirmed."
+}
