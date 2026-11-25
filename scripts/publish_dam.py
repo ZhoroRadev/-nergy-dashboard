@@ -54,7 +54,31 @@ def main(argv=None):
             print(f'VALIDATED day={day} intervals={len(rows)}')
         except (RuntimeError,OSError,ValueError) as exc:
             state['days'].append({'date':day.isoformat(),'complete':False})
-            print(f'NOT_READY day={day} error_type={type(exc).__name__}')
+            # Only emit known, sanitized failure categories; never expose API tokens/URLs.
+            reason = str(exc)
+            if reason.startswith('ENTSO-E HTTP '):
+                import re
+                match = re.search(r'ENTSO-E HTTP (\d{3})', reason)
+                detail = 'HTTP_' + match.group(1) if match else 'HTTP_ERROR'
+            elif reason.startswith('Incomplete delivery day:'):
+                import re
+                match = re.search(r'(\d+)/(\d+) intervals', reason)
+                detail = 'INCOMPLETE_' + match.group(1) + '_OF_' + match.group(2) if match else 'INCOMPLETE_DAY'
+            elif 'No recognized A44 price document or invalid XML' in reason:
+                detail = 'INVALID_XML_OR_DOCUMENT'
+            elif 'No DAM prices for selected Bulgarian delivery date' in reason:
+                detail = 'NO_PRICES_FOR_DAY'
+            elif 'Connection or timeout error' in reason:
+                detail = 'NETWORK_OR_TIMEOUT'
+            elif 'Mixed or unsupported interval resolutions' in reason:
+                detail = 'BAD_RESOLUTION'
+            elif '15-minute series not available' in reason:
+                detail = 'NOT_15_MINUTE'
+            elif 'Invalid BG quarter-hour coverage' in reason:
+                detail = 'INVALID_COVERAGE'
+            else:
+                detail = 'OTHER_' + type(exc).__name__
+            print(f'NOT_READY day={day} reason={detail}', flush=True)
     if not candidates:
         print('ERROR: No validated DAM day; keep old public file',file=sys.stderr)
         return 1
