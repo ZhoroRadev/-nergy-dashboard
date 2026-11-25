@@ -9,6 +9,33 @@
  let catalog=[], chart=null;
  async function getJSON(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);return r.json();}
  function validDay(s){return /^\d{4}-\d{2}-\d{2}$/.test(s)}
+ // Populate the legacy Market v3 dashboard without altering its other data sources.
+ function bridgeToMain(rows, day){
+  try {
+   if(typeof market==='undefined' || !Array.isArray(market) ||
+      typeof refreshDays!=='function' || typeof updateMarket!=='function') return;
+   const merged=new Map(market.map(r=>[r.timestamp,r]));
+   for(const r of rows){
+    const time=r.timestamp;
+    if(typeof time!=='string' || !time.startsWith(day+'T') ||
+       !Number.isFinite(r.dam_eur_mwh)) throw Error('Невалиден ред за основния екран');
+    const previous=merged.get(time)||{};
+    merged.set(time,{...previous,timestamp:time,dam_eur_mwh:r.dam_eur_mwh,
+      intraday_eur_mwh:previous.intraday_eur_mwh??null,
+      balancing_eur_mwh:previous.balancing_eur_mwh??null});
+   }
+   market=[...merged.values()].sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
+   refreshDays();
+   updateMarket();
+   if(typeof setBanner==='function')setBanner('DAM цените се зареждат автоматично от публичния ENTSO-E архив. Intraday и балансиращите цени се зареждат отделно.',true);
+   const source=document.getElementById('marketSourceStatus');
+   if(source)source.textContent='DAM автоматично · ENTSO-E A44';
+   const info=document.getElementById('priceInfo');
+   if(info)info.textContent=`${market.length} наблюдения · DAM автоматично`;
+   const message=document.getElementById('importMessage');
+   if(message)message.textContent=`DAM автоматично: ${day} · ${rows.length} периода. Ръчното зареждане на CSV остава достъпно.`;
+  }catch(e){console.warn('DAM main dashboard bridge:',e.message);}
+ }
  async function load(){
   const day=el('dam128day').value;if(!validDay(day))return;
   try{
@@ -25,6 +52,7 @@
    }
    if(chart){chart.destroy();chart=null;}
    if(window.Chart){chart=new Chart(el('dam128chart'),{type:'line',data:{labels,datasets:[{label:'DAM (EUR/MWh)',data:prices,borderColor:'#60a5fa',pointRadius:0,tension:0}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{ticks:{maxTicksLimit:12}}}}});}
+   bridgeToMain(rows,day);
    status(`${day}: ${rows.length} интервала × 15 мин. Източник: ENTSO-E. Данните са публикувани при потвърдени права.`);
   }catch(err){status('Не успях да заредя цените: '+err.message);}
  }
