@@ -1,0 +1,43 @@
+name: EnergyIntel public DAM feed (rights-gated)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '35 12,14 * * *'
+permissions:
+  contents: write
+concurrency:
+  group: dam-public-auto
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Collect and validate BG DAM A44
+        env:
+          ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+          PUBLISH_DAM_PRICES: ${{ vars.PUBLISH_DAM_PRICES }}
+          DAM_RIGHTS_CONFIRMED: ${{ vars.DAM_RIGHTS_CONFIRMED }}
+        run: python scripts/publish_dam.py --out data
+      - name: Commit only generated DAM files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/dam-public-status.json
+          # Add price files only if the collector generated/updated them and rights were confirmed.
+          if [ -f data/dam-public-index.json ]; then
+            git add data/dam-public-index.json
+            for f in data/dam-????-??-??.json; do
+              [ ! -e "$f" ] || git add "$f"
+            done
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m 'Automated BG DAM refresh'
+            git push
+          fi
