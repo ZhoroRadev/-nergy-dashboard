@@ -1,6 +1,10 @@
 {
-  "updated_at_utc": "2026-11-25T13:06:18+00:00",
+  "updated_at_utc": "2026-11-25T13:53:52+00:00",
   "available_days": [
+    {
+      "date": "2026-11-26",
+      "path": "data/dam-2026-11-26.json"
+    },
     {
       "date": "2026-11-25",
       "path": "data/dam-2026-11-25.json"
